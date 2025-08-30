@@ -10,6 +10,7 @@ if (!TOKEN) throw new Error("Set DISCORD_TOKEN in .env");
 const BOT_NAME = 'R∆3D';
 const MY_NAME = 'رائد';
 const CHANNEL_ID = '1411433034711826513';
+const OWNER_ID = '1079022798523093032'; // معرف المالك
 
 const client = new Client({
   intents: [
@@ -24,7 +25,7 @@ const client = new Client({
 let puter;
 async function loadPuter() {
   const puterJs = await fetch('https://js.puter.com/v2/').then(res => res.text());
-  eval(puterJs); // ⚠️ فقط للتجربة، على سيرفر حقيقي استخدم browser context
+  eval(puterJs); // ⚠️ للتجربة فقط
 }
 
 await loadPuter();
@@ -33,6 +34,16 @@ client.on('ready', () => {
   console.log(`${BOT_NAME} جاهز! Logged in as ${client.user.tag}`);
   client.user.setUsername(BOT_NAME).catch(() => {});
 });
+
+// دالة لإرسال الأخطاء للمالك
+async function notifyOwner(error) {
+  try {
+    const owner = await client.users.fetch(OWNER_ID);
+    owner.send(`⚠️ خطأ في البوت:\n\`\`\`${error.stack || error}\`\`\``);
+  } catch (e) {
+    console.error("لم أستطع إرسال الخطأ للمالك:", e);
+  }
+}
 
 client.on('messageCreate', async message => {
   try {
@@ -73,7 +84,10 @@ client.on('messageCreate', async message => {
 
   } catch (e) {
     console.error(e);
-    message.reply("صار خطأ أثناء معالجة الرسالة.");
+    // إرسال الخطأ للمالك فقط
+    notifyOwner(e);
+    // يمكن إرسال رسالة بسيطة للمستخدم بدل الخطأ الكامل
+    message.reply("❌ صار خطأ أثناء معالجة الرسالة.");
   }
 });
 
