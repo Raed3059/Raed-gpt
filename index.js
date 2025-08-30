@@ -1,41 +1,23 @@
-import fs from 'fs';
-import fetch from 'node-fetch';
-import { Client, GatewayIntentBits, Partials } from 'discord.js';
-import dotenv from 'dotenv';
+import { Client, GatewayIntentBits, Partials } from "discord.js";
+import fetch from "node-fetch";
+import dotenv from "dotenv";
 dotenv.config();
 
 const TOKEN = process.env.DISCORD_TOKEN;
-if (!TOKEN) throw new Error("Set DISCORD_TOKEN in .env");
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
+if (!TOKEN || !GEMINI_KEY) throw new Error("ضع DISCORD_TOKEN و GEMINI_API_KEY في .env");
 
-const BOT_NAME = 'R∆3D';
-const MY_NAME = 'رائد';
-const CHANNEL_ID = '1411433034711826513';
-const OWNER_ID = '1079022798523093032'; // معرف المالك
+const BOT_NAME = "R∆3D";
+const MY_NAME = "رائد";
+const CHANNEL_ID = "1411433034711826513";
+const OWNER_ID = "1079022798523093032";
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
   partials: [Partials.Channel]
 });
 
-// محاكاة Puter.js في Node
-let puter;
-async function loadPuter() {
-  const puterJs = await fetch('https://js.puter.com/v2/').then(res => res.text());
-  eval(puterJs); // ⚠️ للتجربة فقط
-}
-
-await loadPuter();
-
-client.on('ready', () => {
-  console.log(`${BOT_NAME} جاهز! Logged in as ${client.user.tag}`);
-  client.user.setUsername(BOT_NAME).catch(() => {});
-});
-
-// دالة لإرسال الأخطاء للمالك
+// دالة إرسال الأخطاء للمالك
 async function notifyOwner(error) {
   try {
     const owner = await client.users.fetch(OWNER_ID);
@@ -45,48 +27,90 @@ async function notifyOwner(error) {
   }
 }
 
-client.on('messageCreate', async message => {
+// دوال Gemini API
+async function geminiChat(prompt) {
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-goog-api-key": GEMINI_KEY
+      },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    }
+  );
+  const data = await res.json();
+  return data?.content?.[0]?.parts?.[0]?.text || "لم أستطع الرد";
+}
+
+async function geminiImage(prompt) {
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateImage",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-goog-api-key": GEMINI_KEY
+      },
+      body: JSON.stringify({ prompt, imageDimensions: { width: 512, height: 512 } })
+    }
+  );
+  const data = await res.json();
+  return data?.imageUrl;
+}
+
+async function geminiAnalyze(url) {
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:analyzeImage",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-goog-api-key": GEMINI_KEY
+      },
+      body: JSON.stringify({ imageUrl: url })
+    }
+  );
+  const data = await res.json();
+  return data?.description || "لا يوجد تحليل";
+}
+
+// معالجة الرسائل
+client.on("messageCreate", async (message) => {
   try {
-    if (message.author.bot) return; // تجاهل البوتات
-    if (message.channel.id !== CHANNEL_ID) return; // فقط القناة المخصصة
+    if (message.author.bot) return;
+    if (message.channel.id !== CHANNEL_ID) return;
 
     const content = message.content.trim();
-
-    // يرد لو ذكر البوت أو اسم رائد أو اسمه
     const mentioned = message.mentions.has(client.user) ||
                       content.toLowerCase().includes(BOT_NAME.toLowerCase()) ||
                       content.includes(MY_NAME);
-
     if (!mentioned) return;
 
-    // 🔹 محاولة التعرف إذا هي صورة أو طلب إنشاء صورة
+    // تحقق من رابط صورة
     const urlRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif))/i;
     const imageUrl = content.match(urlRegex)?.[0];
-
-    // لو فيها رابط صورة => تحليل
     if (imageUrl) {
-      const analysis = await puter.ai.analyze(imageUrl);
+      const analysis = await geminiAnalyze(imageUrl);
       return message.reply(`تحليل الصورة:\n${analysis}`);
     }
 
-    // لو تحتوي كلمات دالة على إنشاء صورة
-    const createImgKeywords = ['ارسم', 'صورة', 'generate image', 'create image', 'رسم'];
+    // تحقق من طلب إنشاء صورة
+    const createImgKeywords = ["ارسم","صورة","generate image","create image","رسم"];
     const isImageRequest = createImgKeywords.some(word => content.includes(word));
-
     if (isImageRequest) {
-      const imgRes = await puter.ai.image(content, { width: 512, height: 512 });
-      return message.reply({ files: [imgRes.url] });
+      const imgUrl = await geminiImage(content);
+      return message.reply({ files: [imgUrl] });
     }
 
     // باقي الرسائل => نص AI
-    const res = await puter.ai.chat(content, { model: "gpt-4o" });
+    const res = await geminiChat(content);
     message.reply(res);
 
   } catch (e) {
     console.error(e);
-    // إرسال الخطأ للمالك فقط
     notifyOwner(e);
-    // يمكن إرسال رسالة بسيطة للمستخدم بدل الخطأ الكامل
     message.reply("❌ صار خطأ أثناء معالجة الرسالة.");
   }
 });

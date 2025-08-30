@@ -1,15 +1,15 @@
 {
-  "name": "r3d-bot",
+  "name": "r3d-gemini-bot",
   "version": "1.0.0",
-  "description": "R∆3D - Discord AI bot with text, image generation, and image analysis",
+  "description": "R∆3D Discord bot using Gemini API",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-  "discord.js": "^14.12.1",
-  "node-fetch": "^3.3.2",
-  "dotenv": "^16.1.4"
-}
+    "discord.js": "^14.12.1",
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.1.4"
+  }
 }
