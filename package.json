@@ -1,0 +1,14 @@
+{
+  "name": "r3d-bot",
+  "version": "1.0.0",
+  "description": "R∆3D - Discord AI bot with text, image generation, and image analysis",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.12.1",
+    "node-fetch": "^3.3.2"
+  }
+}
