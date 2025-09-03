@@ -1,118 +1,90 @@
-import { Client, GatewayIntentBits, Partials } from "discord.js";
-import fetch from "node-fetch";
+import { Client, GatewayIntentBits } from "discord.js";
+import axios from "axios";
+import * as cheerio from "cheerio";
 import dotenv from "dotenv";
-dotenv.config();
 
-const TOKEN = process.env.DISCORD_TOKEN;
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-if (!TOKEN || !GEMINI_KEY) throw new Error("ضع DISCORD_TOKEN و GEMINI_API_KEY في .env");
-
-const BOT_NAME = "R∆3D";
-const MY_NAME = "رائد";
-const CHANNEL_ID = "1411433034711826513";
-const OWNER_ID = "1079022798523093032";
+dotenv.config(); // 🔑 تحميل القيم من .env
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
-  partials: [Partials.Channel]
 });
 
-// دالة إرسال الأخطاء للمالك
-async function notifyOwner(error) {
+const TOKEN = process.env.TOKEN; // ✅ جلب التوكن من .env
+
+async function getTikTokInfo(username) {
   try {
-    const owner = await client.users.fetch(OWNER_ID);
-    owner.send(`⚠️ خطأ في البوت:\n\`\`\`${error.stack || error}\`\`\``);
-  } catch (e) {
-    console.error("لم أستطع إرسال الخطأ للمالك:", e);
+    username = username.replace("@", "");
+    const headers = {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+    };
+
+    const res = await axios.get(`https://www.tiktok.com/@${username}`, { headers });
+    const $ = cheerio.load(res.data);
+    const script = $("#__UNIVERSAL_DATA_FOR_REHYDRATION__").text();
+
+    if (!script) return null;
+
+    const jsonData = JSON.parse(script)["__DEFAULT_SCOPE__"]["webapp.user-detail"]["userInfo"];
+    const user = jsonData.user;
+    const stats = jsonData.stats;
+
+    return {
+      id: user.id,
+      nickname: user.nickname,
+      verified: user.verified ? "Yes" : "No",
+      private: user.privateAccount ? "Yes" : "No",
+      secUid: user.secUid,
+      followers: stats.followerCount,
+      following: stats.followingCount,
+      likes: stats.heart,
+      videoCount: stats.videoCount,
+      openFavorite: user.openFavorite ? "Yes" : "No",
+      followingVisible: user.followingVisibility == 1 ? "Yes" : "No",
+      language: user.language,
+      region: user.region,
+      createTime: new Date(parseInt(user.id) >> 31).toString(),
+      lastNameChange: user.nickNameModifyTime
+        ? new Date(user.nickNameModifyTime * 1000).toString()
+        : "Unknown",
+    };
+  } catch {
+    return null;
   }
 }
 
-// دوال Gemini API
-async function geminiChat(prompt) {
-  const res = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-goog-api-key": GEMINI_KEY
-      },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    }
-  );
-  const data = await res.json();
-  return data?.content?.[0]?.parts?.[0]?.text || "لم أستطع الرد";
-}
-
-async function geminiImage(prompt) {
-  const res = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateImage",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-goog-api-key": GEMINI_KEY
-      },
-      body: JSON.stringify({ prompt, imageDimensions: { width: 512, height: 512 } })
-    }
-  );
-  const data = await res.json();
-  return data?.imageUrl;
-}
-
-async function geminiAnalyze(url) {
-  const res = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:analyzeImage",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-goog-api-key": GEMINI_KEY
-      },
-      body: JSON.stringify({ imageUrl: url })
-    }
-  );
-  const data = await res.json();
-  return data?.description || "لا يوجد تحليل";
-}
-
-// معالجة الرسائل
+// 📌 أمر ديسكورد
 client.on("messageCreate", async (message) => {
-  try {
-    if (message.author.bot) return;
-    if (message.channel.id !== CHANNEL_ID) return;
+  if (!message.content.startsWith("!tiktok") || message.author.bot) return;
 
-    const content = message.content.trim();
-    const mentioned = message.mentions.has(client.user) ||
-                      content.toLowerCase().includes(BOT_NAME.toLowerCase()) ||
-                      content.includes(MY_NAME);
-    if (!mentioned) return;
+  const args = message.content.split(" ");
+  const username = args[1];
 
-    // تحقق من رابط صورة
-    const urlRegex = /(https?:\/\/.*\.(?:png|jpg|jpeg|gif))/i;
-    const imageUrl = content.match(urlRegex)?.[0];
-    if (imageUrl) {
-      const analysis = await geminiAnalyze(imageUrl);
-      return message.reply(`تحليل الصورة:\n${analysis}`);
-    }
+  if (!username) return message.reply("❌ اكتب يوزر التيك توك: `!tiktok username`");
 
-    // تحقق من طلب إنشاء صورة
-    const createImgKeywords = ["ارسم","صورة","generate image","create image","رسم"];
-    const isImageRequest = createImgKeywords.some(word => content.includes(word));
-    if (isImageRequest) {
-      const imgUrl = await geminiImage(content);
-      return message.reply({ files: [imgUrl] });
-    }
+  const info = await getTikTokInfo(username);
+  if (!info) return message.reply("❌ ما حصلت معلومات عن هذا الحساب.");
 
-    // باقي الرسائل => نص AI
-    const res = await geminiChat(content);
-    message.reply(res);
+  message.reply(`
+📌 معلومات الحساب @${username} :
 
-  } catch (e) {
-    console.error(e);
-    notifyOwner(e);
-    message.reply("❌ صار خطأ أثناء معالجة الرسالة.");
-  }
+🆔 UserID: ${info.id}
+👤 Nickname: ${info.nickname}
+✅ Verified: ${info.verified}
+🔒 Private: ${info.private}
+🌍 Region: ${info.region}
+🌐 Language: ${info.language}
+
+📊 Followers: ${info.followers}
+📊 Following: ${info.following}
+❤️ Likes: ${info.likes}
+🎥 Videos: ${info.videoCount}
+
+📁 Open Favorite: ${info.openFavorite}
+👀 Can See Following: ${info.followingVisible}
+🗓 Create Time: ${info.createTime}
+📝 Last Nickname Change: ${info.lastNameChange}
+  `);
 });
 
 client.login(TOKEN);
